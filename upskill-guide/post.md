@@ -189,4 +189,4 @@ Start with upskilling. Add fine-tuning if you need it.
 ---
 
 *Full code: [github.com/Prerak1520/gemmaedge-hub](https://github.com/Prerak1520/gemmaedge-hub)*
-*Hardware: Mac Mini M2 (24 GB), Raspberry Pi 4 (4 GB), USB webcam*
+*Hardware: Mac Mini M4 (24 GB), Raspberry Pi 4 (4 GB), USB webcam*
