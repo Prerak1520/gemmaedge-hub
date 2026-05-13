@@ -45,6 +45,18 @@ GemmaEdge Hub is useful anywhere a small local model should handle the common pa
 
 ---
 
+## Demo screenshots
+
+The screenshots below are redacted demo captures from the local two-device run.
+
+![Edge terminal showing local Gemma 4 E2B frame capture, local answers, confidence values, periodic audits, and safety keyword escalation to the Mac Mini.](assets/demo/edge-terminal-redacted.png)
+
+![Mac Mini terminal showing the FastAPI dashboard server running on localhost and serving repeated dashboard status requests.](assets/demo/server-terminal-redacted.png)
+
+![GemmaEdge Hub dashboard showing redacted frame thumbnails, edge answers, Mac Mini answers, confidence values, and escalation latency.](assets/demo/dashboard-redacted.png)
+
+---
+
 ## Requirements
 
 ### Mac Mini (server)
