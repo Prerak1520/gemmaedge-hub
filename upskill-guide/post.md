@@ -1,192 +1,262 @@
-# Two Ways to Make a Small Model Smarter for Edge Deployment (No GPU Required)
+# Before You Fine-Tune Gemma 4, Let a Bigger Gemma Teach Your Smaller One
 
-*A practical guide using Gemma 4 on a Mac Mini + Raspberry Pi 4*
+*This is a submission for the [Gemma 4 Challenge: Write About Gemma 4](https://dev.to/challenges/google-gemma-2026-05-06)*
 
----
+I built a local vision project with Gemma 4 where a small model runs on an edge device and a bigger model runs on a stronger local machine. The small model is fast and private. The bigger model is slower, but better at careful reasoning.
 
-When you deploy a small model to an edge device like a Raspberry Pi, you quickly hit a problem: the model is fast and private, but it gets confused on hard cases. The obvious fix is fine-tuning — but that takes hours, a dataset, and real compute.
+That setup taught me something useful:
 
-This guide shows two paths to improve your edge model, ordered from fast to thorough:
+**Fine-tuning should not be the first thing you reach for.**
 
-1. **Prompt upskilling** — use a bigger model to write a better system prompt for the small one. 5 minutes, no training data needed.
-2. **QLoRA fine-tuning** — adjust the model's actual weights on your Mac Mini. 1–2 hours, needs labeled examples.
+Before collecting a dataset, launching a training job, or changing weights, try this:
 
-Both approaches are real and useful. Start with path 1. Only go to path 2 if you need more.
+> Use a larger Gemma 4 model as a teacher to improve how you prompt and route a smaller Gemma 4 model.
 
----
-
-## The Setup
-
-**Hardware:**
-- Mac Mini (24 GB unified RAM) — runs Gemma 4 26B as the "smart" model
-- Raspberry Pi 4 (4 or 8 GB RAM) — runs Gemma 4 2B as the "edge" model
-- USB webcam connected to the Pi
-
-**Why these model sizes?**
-- Gemma 4 2B fits in ~3 GB RAM, runs at 2–4 tokens/sec on Pi CPU — fast enough for real-time use
-- Gemma 4 26B (MoE) fits in ~18 GB RAM on the Mac, uses Apple Metal for ~15–20 tok/s
-- The 256K context window on the larger model lets it reason over full scene descriptions
-
-Both run locally via [Ollama](https://ollama.com) — no cloud, no API keys.
+This post walks through the pattern I used: prompt upskilling, escalation, and knowing when fine-tuning is actually worth it.
 
 ---
 
-## Install Ollama and Pull the Models
+## The Problem: Small Models Are Fast, But Sometimes Too Confident
 
-On both machines, install Ollama:
+Small local models are exciting because they make edge AI feel practical. You can run inference close to the sensor, avoid sending every input over the network, and keep latency low.
 
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
+But when I tested Gemma 4 E2B on webcam frames, I ran into a familiar issue: the model often gave a confident answer even when the scene deserved a second look.
+
+For example, a simple edge loop might ask:
+
+```text
+Describe this webcam frame.
+Return:
+- what you see
+- whether anything safety-relevant is happening
+- confidence from 0.0 to 1.0
 ```
 
-On the **Mac Mini**, pull the large model:
+The small model can do this quickly. But self-reported confidence is not a perfect reliability signal. A model can say `CONFIDENCE: 1.0` and still miss context, ambiguity, or safety relevance.
 
-```bash
-ollama pull gemma4:26b
-```
-
-On the **Pi**, pull the small model:
-
-```bash
-ollama pull gemma4:2b
-```
-
-Both will take a few minutes depending on your connection.
+That does not mean the small model is useless. It means the system around the model matters.
 
 ---
 
-## Path 1: Prompt Upskilling with a Teacher Model
+## The Pattern: Student, Teacher, and Escalation
 
-The idea is simple: ask the big model (teacher) to write an optimized system prompt for the small model (student), then score each candidate by testing it against real inputs.
+The architecture I used has two roles:
 
-This is the spirit behind the [huggingface/upskill](https://github.com/huggingface/upskill) library — use a capable model to generate skills that a cheaper model can rely on.
+- **Student model**: Gemma 4 E2B on the edge device
+- **Teacher model**: a larger Gemma 4 model on a Mac Mini
 
-Here's the core of `upskill_train.py`:
+The student handles routine inputs locally. The teacher helps in two ways:
+
+1. It reviews harder or safety-relevant cases.
+2. It helps write a better system prompt for the student.
+
+In other words, the bigger model is not just a fallback. It is also a coach.
+
+---
+
+## Step 1: Make the Small Model's Job Very Specific
+
+The first improvement is not training. It is task clarity.
+
+Instead of giving the edge model a generic instruction like:
+
+```text
+Describe the image.
+```
+
+I give it a narrow role:
+
+```text
+You are an edge vision assistant running on a local device.
+Describe people, objects, and safety-relevant activity in the webcam frame.
+Prefer concise factual observations.
+End with CONFIDENCE: <number from 0.0 to 1.0>.
+```
+
+This matters because small models benefit from a tight frame. A good prompt reduces the number of decisions the model has to invent on its own.
+
+But writing that prompt by hand is only the start.
+
+---
+
+## Step 2: Ask the Bigger Model to Generate Better Prompts
+
+The teacher model can produce several candidate system prompts for the student.
+
+Here is the idea:
 
 ```python
 def generate_candidate_skills(n: int = 4) -> list[str]:
-    """Ask Gemma 27B to write N system prompts for our webcam task."""
-    prompt = f"""Write {n} system prompts for this task:
-    Identify objects, people, and safety-relevant activity in a webcam image.
-    Return a JSON array of strings."""
+    prompt = f"""
+    Write {n} system prompts for a small edge vision model.
 
-    response = ollama.chat(model="gemma4:26b", messages=[{"role": "user", "content": prompt}])
+    Task:
+    - identify people and objects in webcam frames
+    - call out safety-relevant activity
+    - stay concise
+    - end with CONFIDENCE: <0.0 to 1.0>
+
+    Return a JSON array of strings.
+    """
+
+    response = ollama.chat(
+        model="gemma4:26b",
+        messages=[{"role": "user", "content": prompt}],
+    )
+
     return json.loads(extract_json(response["message"]["content"]))
+```
 
+The larger model is better at writing instructions that anticipate failure modes: ambiguous scenes, safety language, object focus, and concise formatting.
 
+That gives you a few candidate prompts. The next step is to score them.
+
+---
+
+## Step 3: Score Prompts Against Real Examples
+
+Prompt upskilling only works if you test the prompts.
+
+I used a tiny evaluation set with examples like:
+
+```python
+EVAL_CASES = [
+    {
+        "user": "A person is holding a lighter with a visible flame.",
+        "ideal_keywords": ["person", "flame", "safety"],
+    },
+    {
+        "user": "A laptop and coffee mug are on a desk.",
+        "ideal_keywords": ["laptop", "mug", "no safety"],
+    },
+]
+```
+
+Then each candidate prompt is tested with the smaller model:
+
+```python
 def score_skill(skill: str) -> float:
-    """Test each candidate against eval cases using Gemma 2B as student."""
     hits, total = 0, 0
+
     for case in EVAL_CASES:
         response = ollama.chat(
-            model="gemma4:2b",
-            messages=[{"role": "user", "content": case["user"]}],
-            options={"system": skill},
+            model="gemma4:e2b",
+            messages=[
+                {"role": "system", "content": skill},
+                {"role": "user", "content": case["user"]},
+            ],
         )
+
         answer = response["message"]["content"].lower()
+
         for keyword in case["ideal_keywords"]:
             total += 1
             if keyword in answer:
                 hits += 1
+
     return hits / total
 ```
 
-Run it on the Mac:
+This is not a perfect benchmark, but it is incredibly useful. You are no longer choosing a prompt by vibes. You are choosing the prompt that performs best on examples that look like your actual task.
 
-```bash
-python upskill_train.py
-```
-
-It takes about 5 minutes. The winning system prompt is saved to `skill.txt`. Copy it to the Pi:
-
-```bash
-scp skill.txt pi@<PI_IP>:~/gemmaedge/skill.txt
-```
-
-The Pi's `sensor.py` loads it automatically on startup. In testing, this improved keyword coverage from ~55% to ~78% on our eval set — with zero training.
+The winning prompt gets saved as `skill.txt`, and the edge device loads it at startup.
 
 ---
 
-## Path 2: QLoRA Fine-Tuning on the Mac Mini
+## Step 4: Do Not Trust Confidence Alone
 
-When prompt upskilling isn't enough, you can fine-tune the model's weights. On 24 GB of unified RAM you can comfortably run QLoRA on Gemma 4 2B in fp16.
+My first version escalated only when confidence was below a threshold:
 
-**What you need first:** a labeled dataset. Each example is a prompt + ideal response:
-
-```jsonl
-{"prompt": "What do you see? A person near an open window.", "response": "A person is standing near an open window. This may be a safety concern if on a high floor."}
-{"prompt": "What do you see? A laptop and a coffee mug on a desk.", "response": "A laptop computer and a coffee mug are on a desk. No safety concerns."}
+```python
+if confidence < ESCALATE_THRESHOLD:
+    escalate_to_mac(frame)
 ```
 
-20–50 examples is enough for style adaptation. 200+ for task-specific accuracy.
+That sounds reasonable until the model is confidently wrong or confidently incomplete.
 
-**Run the fine-tune:**
+The better policy uses multiple signals:
 
-```bash
-python finetune.py --dataset my_data.jsonl --output ./gemma2b-finetuned
+```python
+def escalation_reason(answer: str, confidence: float, frame_count: int) -> str | None:
+    if confidence < ESCALATE_THRESHOLD:
+        return f"low confidence ({confidence:.2f})"
+
+    for keyword in SAFETY_KEYWORDS:
+        if keyword in answer.lower():
+            return f"safety keyword: {keyword}"
+
+    if frame_count % AUDIT_EVERY_N_FRAMES == 0:
+        return "periodic audit"
+
+    return None
 ```
 
-Key settings in `finetune.py`:
-- `r=16` (LoRA rank) — low enough to fit in RAM, high enough to learn
-- `per_device_train_batch_size=2` + `gradient_accumulation_steps=4` — effective batch of 8
-- 3 epochs takes about 90 minutes on Mac Mini with M-series chip
+This changed how I think about local AI. The question is not just “which model is best?” The better question is:
 
-**Export to GGUF and load on Pi:**
+> What policy decides when a small model is enough?
 
-```bash
-# Install llama.cpp conversion tool
-pip install llama-cpp-python
+For edge systems, that policy is part of the product.
 
-# Convert
-python convert_hf_to_gguf.py ./gemma2b-finetuned --outfile gemma2b-custom.gguf
+---
 
-# Copy to Pi
-scp gemma2b-custom.gguf pi@<PI_IP>:~/.ollama/models/
+## When Should You Actually Fine-Tune?
 
-# Create Ollama modelfile on Pi
-echo 'FROM gemma2b-custom.gguf' > Modelfile
-ollama create gemma4-custom -f Modelfile
+Prompt upskilling is cheap and fast, but it does not replace fine-tuning.
+
+I would start with prompt upskilling when:
+
+- You are still exploring the task.
+- You have fewer than 100 labeled examples.
+- The model mostly knows the domain but needs better instructions.
+- You need a quick improvement without training infrastructure.
+
+I would consider fine-tuning when:
+
+- You have a real dataset.
+- You need consistent formatting across many edge cases.
+- The model lacks domain-specific vocabulary.
+- Prompting and routing are no longer enough.
+
+Fine-tuning is powerful, but it is not free. It adds data work, training time, evaluation work, and deployment complexity. Prompt upskilling gives you a strong baseline before you pay that cost.
+
+---
+
+## Why Gemma 4 Was a Good Fit
+
+Gemma 4 was useful here because the model family gives developers room to design systems, not just prompts.
+
+The small model can run close to the data source, which is ideal for privacy and responsiveness. The larger model can sit nearby on stronger local hardware and handle harder reasoning. That creates a practical local workflow:
+
+```text
+edge device -> quick local answer -> escalation policy -> stronger local review
 ```
 
-Update `LOCAL_MODEL = "gemma4-custom"` in `sensor.py` and restart.
+That pattern is useful beyond webcam demos. It applies to:
+
+- home and small-office monitoring
+- workshop safety
+- accessibility tools
+- retail or front-desk awareness
+- local-first AI prototypes
+
+The important part is that not every input needs the same amount of intelligence. Gemma 4 lets you design for that.
 
 ---
 
-## What the System Looks Like Running
+## The Takeaway
 
-The Mac server runs at `http://mac-mini.local:8000`. Open that in a browser and you get a live dashboard showing:
+The biggest lesson I learned is that model orchestration can matter as much as model size.
 
-- Every frame the Pi analyzed
-- The Pi's local answer and confidence score
-- Whether it escalated (and why)
-- The Mac's more detailed response
-- Round-trip latency
+A small model with a good prompt, clear task boundaries, and a smart escalation policy can be much more useful than a small model running alone. A larger model can improve the system without handling every request: it can review difficult cases, generate better prompts, and help you discover where the smaller model fails.
 
-When confidence is above 0.55, the answer stays local — no network call, instant response, fully private. When it drops below that threshold, the Pi sends the frame to the Mac for deeper reasoning.
+So before you fine-tune Gemma 4, try this:
 
----
+1. Give the small model a narrow job.
+2. Ask a larger Gemma 4 model to generate candidate prompts.
+3. Score those prompts on realistic examples.
+4. Add an escalation policy that does not rely on confidence alone.
+5. Fine-tune only after you know prompting and routing are not enough.
 
-## Results
+That is the practical path I would recommend to anyone building local AI with Gemma 4.
 
-After running `upskill_train.py` and updating the system prompt:
-
-| Metric | Before (default prompt) | After (upskilled prompt) |
-|--------|------------------------|--------------------------|
-| Keyword coverage | 55% | 78% |
-| False escalations | ~40% of frames | ~18% of frames |
-| Avg latency (local) | 1.8s | 1.6s |
-
-The model didn't change. Only the system prompt did. That's the point.
-
----
-
-## Key Takeaway
-
-A better system prompt, written by a smarter model, is often 80% of the improvement at 0% of the training cost. Fine-tuning is the right tool when you have labeled data and need the model to genuinely learn new behavior — not just be guided differently.
-
-Start with upskilling. Add fine-tuning if you need it.
-
----
-
-*Full code: [github.com/Prerak1520/gemmaedge-hub](https://github.com/Prerak1520/gemmaedge-hub)*
-*Hardware: Mac Mini M4 (24 GB), Raspberry Pi 4 (4 GB), USB webcam*
+Full project code: [github.com/Prerak1520/gemmaedge-hub](https://github.com/Prerak1520/gemmaedge-hub)
