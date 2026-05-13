@@ -69,7 +69,12 @@ export MAC_URL=http://192.168.4.98:8000
 
 **Problem**: `gemma4:e2b` always self-reported `CONFIDENCE: 1.0`, so the threshold of 0.55 was never crossed.  
 **Explanation**: The model follows the instruction literally and reports maximum confidence even when uncertain.  
-**Workaround for testing**: Set `ESCALATE_THRESHOLD = 1.1` temporarily to force all frames to escalate. For production, consider using a fixed escalation interval or a different confidence signal.
+**Fix**: Keep the low-confidence threshold, but do not rely on self-confidence alone. The edge sensor now escalates when:
+- confidence is below `ESCALATE_THRESHOLD`
+- the local answer includes safety-relevant keywords
+- an overconfident answer is due for a periodic audit via `AUDIT_EVERY_N_FRAMES`
+
+For a live demo, `AUDIT_EVERY_N_FRAMES=3` shows the Mac Mini escalation path without forcing every frame through the large model.
 
 ---
 

@@ -94,8 +94,10 @@ def score_skill(skill: str) -> float:
     for case in EVAL_CASES:
         response = ollama.chat(
             model=STUDENT_MODEL,
-            messages=[{"role": "user", "content": case["user"]}],
-            options={"system": skill},
+            messages=[
+                {"role": "system", "content": skill},
+                {"role": "user", "content": case["user"]},
+            ],
         )
         answer = response["message"]["content"].lower()
         for keyword in case["ideal_keywords"]:

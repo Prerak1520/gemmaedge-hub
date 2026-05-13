@@ -12,12 +12,12 @@ A MacBook Air runs **Gemma 4 2B** locally for fast, private inference. When conf
 MacBook Air (edge)          Mac Mini (server)
 ──────────────────          ─────────────────
 webcam → Gemma 4 2B    →   Gemma 4 26B
-  conf >= 0.55: done         detailed answer
-  conf <  0.55: escalate →   dashboard log
+  routine frames: done        detailed answer
+  uncertain/safety/audit →    dashboard log
 ```
 
 - **Edge**: fast, private, no network needed for routine frames
-- **Escalation**: only uncertain frames leave the device
+- **Escalation**: uncertain frames, safety-relevant frames, and periodic audits leave the device
 - **Teacher-student upskilling**: Mac Mini generates an optimized system prompt for the 2B model, improving local accuracy without any weight training
 
 ---
@@ -76,6 +76,8 @@ pip install -r requirements.txt
 
 # 4. Set Mac Mini IP and start
 export MAC_URL=http://<MINI_IP>:8000
+# Optional: audit every N overconfident local answers. Set 0 to disable.
+export AUDIT_EVERY_N_FRAMES=3
 cd ~/gemmaedge-hub
 python3 air/sensor.py
 ```

@@ -12,9 +12,13 @@ Why Gemma 4 26B here:
 
 import base64
 import logging
+import sys
 import time
 from collections import deque
 from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import ollama
 from fastapi import FastAPI, HTTPException
@@ -171,6 +175,16 @@ function confClass(v) {
   return v >= 0.75 ? 'high' : v >= 0.55 ? 'mid' : 'low';
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
 async function refresh() {
   try {
     const data = await fetch('/status').then(r => r.json());
@@ -186,14 +200,14 @@ async function refresh() {
       const edgeConf = `<span class="conf ${confClass(e.edge_conf)}">${e.edge_conf}</span>`;
       const macConf  = `<span class="conf ${confClass(e.mac_conf)}">${e.mac_conf}</span>`;
       return `<tr>
-        <td>${e.time}</td>
-        <td style="font-family:monospace;color:#64748b">${e.session_id}</td>
+        <td>${escapeHtml(e.time)}</td>
+        <td style="font-family:monospace;color:#64748b">${escapeHtml(e.session_id)}</td>
         <td>${img}</td>
-        <td class="answer">${e.edge_answer}</td>
+        <td class="answer">${escapeHtml(e.edge_answer)}</td>
         <td>${edgeConf}</td>
-        <td class="answer">${e.mac_answer}</td>
+        <td class="answer">${escapeHtml(e.mac_answer)}</td>
         <td>${macConf}</td>
-        <td>${e.elapsed_s}s</td>
+        <td>${escapeHtml(e.elapsed_s)}s</td>
       </tr>`;
     }).join('');
   } catch(err) {

@@ -3,13 +3,17 @@ HTTP client used by sensor.py to escalate requests to the Mac Mini server.
 """
 
 import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import httpx
 from shared.protocol import EdgeRequest, EdgeResponse
 
 # Set MAC_URL in your Pi's environment, e.g.:
 #   export MAC_URL=http://192.168.1.42:8000
 MAC_URL = os.environ.get("MAC_URL", "http://mac-mini.local:8000")
-TIMEOUT = 30  # seconds
+TIMEOUT = 180  # seconds; 26B can take 2+ min on first inference
 
 
 def escalate_to_mac(

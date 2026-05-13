@@ -10,9 +10,8 @@ Why Gemma 4 2B here:
 """
 
 import base64
-import io
-import json
 import logging
+import os
 import sys
 import time
 import uuid
@@ -20,15 +19,19 @@ from pathlib import Path
 
 import cv2
 import ollama
-from PIL import Image
 
 from client import escalate_to_mac
 
 # ── config ────────────────────────────────────────────────────────────────────
-LOCAL_MODEL = "gemma4:2b"
+LOCAL_MODEL = "gemma4:e2b"
 ESCALATE_THRESHOLD = 0.55      # escalate to Mac if local confidence < this
+AUDIT_EVERY_N_FRAMES = int(os.environ.get("AUDIT_EVERY_N_FRAMES", "3"))
 CAMERA_INDEX = 0               # 0 = first USB webcam
 SKILL_FILE = Path("skill.txt") # system prompt written by upskill_train.py on Mac
+SAFETY_KEYWORDS = (
+    "smoke", "fire", "flame", "hazard", "danger", "injury", "fallen",
+    "weapon", "blood", "emergency", "suspicious", "unusual",
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -80,8 +83,10 @@ def local_inference(
 
     response = ollama.chat(
         model=LOCAL_MODEL,
-        messages=[message],
-        options={"system": system},
+        messages=[
+            {"role": "system", "content": system},
+            message,
+        ],
     )
     text = response["message"]["content"]
 
@@ -94,7 +99,23 @@ def local_inference(
         except ValueError:
             pass
 
-    return text, confidence
+    return text, max(0.0, min(1.0, confidence))
+
+
+def escalation_reason(answer: str, confidence: float, frame_count: int) -> str | None:
+    """Decide when the local answer needs a stronger model."""
+    if confidence < ESCALATE_THRESHOLD:
+        return f"low confidence ({confidence:.2f})"
+
+    lowered = answer.lower()
+    for keyword in SAFETY_KEYWORDS:
+        if keyword in lowered:
+            return f"safety keyword: {keyword}"
+
+    if AUDIT_EVERY_N_FRAMES > 0 and confidence >= 0.99 and frame_count % AUDIT_EVERY_N_FRAMES == 0:
+        return "periodic audit of overconfident local answer"
+
+    return None
 
 
 # ── main loop ─────────────────────────────────────────────────────────────────
@@ -104,7 +125,9 @@ def run() -> None:
     system_prompt = load_skill()
     log.info("System prompt loaded (%d chars)", len(system_prompt))
 
+    frame_count = 0
     while True:
+        frame_count += 1
         session_id = str(uuid.uuid4())[:8]
 
         try:
@@ -120,8 +143,9 @@ def run() -> None:
 
             log.info("[%s] Local answer (conf=%.2f): %s", session_id, confidence, answer)
 
-            if confidence < ESCALATE_THRESHOLD:
-                log.info("[%s] Low confidence — escalating to Mac…", session_id)
+            reason = escalation_reason(answer, confidence, frame_count)
+            if reason:
+                log.info("[%s] Escalating to Mac (%s)…", session_id, reason)
                 mac_response = escalate_to_mac(
                     session_id=session_id,
                     modality="vision",
