@@ -14,6 +14,14 @@ The edge device is a MacBook Air running `gemma4:e2b` through Ollama for fast, p
 
 The goal is to make local multimodal AI feel practical: small model first, bigger model only when it is worth the extra compute.
 
+Some use cases this architecture points toward:
+
+- Home or small-office monitoring where ordinary frames stay local, but possible smoke, fire, injury, or unusual activity gets reviewed by a stronger model.
+- Workshop and lab safety, where an edge device can watch for risky visual cues near equipment without sending every frame across the network.
+- Accessibility assistance, where quick local scene descriptions can be escalated when the scene is ambiguous or safety-related.
+- Retail or front-desk awareness, where routine activity can be summarized locally and unusual situations can be logged for review.
+- Edge AI prototyping, because the project makes it easy to experiment with model routing, escalation policies, and prompt-based upskilling.
+
 ## Demo
 
 The live demo runs across two Macs on the same local network:
@@ -43,6 +51,18 @@ The main pieces are:
 - `mac/server.py`: FastAPI server, Gemma 4 server inference, live dashboard
 - `mac/upskill_train.py`: teacher-student prompt optimization for the edge model
 - `shared/protocol.py`: shared Pydantic request/response schema
+
+## Why This Fits the Build Criteria
+
+I am submitting this under **Build With Gemma 4** because the project is primarily a working system, not just an article about the model.
+
+**Intentional and effective use of Gemma 4**: Gemma 4 is not an add-on; it is the routing engine of the project. The small `gemma4:e2b` model handles fast local vision on the edge device, while the larger Gemma 4 model on the Mac Mini handles harder cases. The model split is intentional: privacy and speed first, deeper reasoning only when needed.
+
+**Technical implementation and code quality**: The project has a shared request/response protocol, separate edge and server modules, a FastAPI escalation server, a live dashboard, configurable audit behavior, safer dashboard rendering, and documented setup for both devices. The escalation policy also handles a real testing issue: the small model can be overconfident, so the system does not rely on self-reported confidence alone.
+
+**Creativity and originality**: Instead of running one model everywhere, GemmaEdge Hub treats local AI like a small distributed system. It combines edge inference, local server escalation, confidence policy, safety keyword routing, periodic audits, and teacher-student prompt upskilling into one practical workflow.
+
+**Usability and user experience**: The user can see what is happening in real time through the Mac Mini dashboard: the edge answer, the escalated answer, confidence values, latency, and recent frames. The README includes setup steps, run order, model choices, and lessons learned from real debugging.
 
 ## How I Used Gemma 4
 

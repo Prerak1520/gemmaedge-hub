@@ -22,6 +22,29 @@ webcam → Gemma 4 2B    →   Gemma 4 26B
 
 ---
 
+## Challenge fit
+
+This is a **Build With Gemma 4** submission. It is designed around the judging criteria:
+
+- **Intentional model use**: Gemma 4 2B runs on the edge for speed and privacy; Gemma 4 26B runs on the Mac Mini for deeper reasoning.
+- **Technical implementation**: separate edge/server modules, shared protocol models, HTTP escalation, live dashboard, configurable audit policy, and prompt upskilling.
+- **Originality**: a local two-device model-routing system instead of a single-model demo.
+- **Usability**: a visible dashboard, clear setup instructions, documented run order, and lessons learned from real testing.
+
+---
+
+## Use cases
+
+GemmaEdge Hub is useful anywhere a small local model should handle the common path, but a larger local model should review the important edge cases.
+
+- **Home or small-office monitoring**: keep ordinary camera frames private on the edge device, but escalate possible smoke, fire, injury, or unusual activity.
+- **Workshop and lab safety**: run lightweight visual checks near equipment, then ask the stronger model for a second opinion when something looks risky.
+- **Accessibility assistance**: provide quick local scene descriptions while escalating ambiguous scenes for more careful reasoning.
+- **Retail or front-desk awareness**: summarize routine activity locally and escalate unusual situations without streaming every frame to a cloud service.
+- **Edge AI prototyping**: test hybrid model routing, confidence policies, and teacher-student prompt improvement without training custom model weights.
+
+---
+
 ## Requirements
 
 ### Mac Mini (server)
