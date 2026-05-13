@@ -1,7 +1,6 @@
 ---
 title: GemmaEdge Hub: A Two-Device Local AI Vision System
-published: false
-tags: devchallenge, gemmachallenge, gemma
+
 ---
 
 *This is a submission for the [Gemma 4 Challenge: Build with Gemma 4](https://dev.to/challenges/google-gemma-2026-05-06)*
@@ -35,7 +34,7 @@ The live demo runs across two Macs on the same local network:
 Dashboard URL during the demo:
 
 ```text
-http://<MINI_IP>:8000
+http://localhost:8000
 ```
 
 ## Code
